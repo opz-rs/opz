@@ -58,6 +58,7 @@ fn make_field(label: Option<&str>, has_value: bool) -> ItemField {
 
 fn make_item(fields: Vec<ItemField>) -> ItemGet {
     ItemGet {
+        urls: Vec::new(),
         id: None,
         title: None,
         fields,
@@ -2824,4 +2825,47 @@ fn test_sdk_item_create_params_maps_secure_note_to_notes() {
     assert_eq!(params["title"], "repo");
     assert_eq!(params["notes"], "```env\nTOKEN=canary\n```");
     assert!(params.get("fields").is_none());
+}
+
+#[test]
+fn repository_website_identity_preserves_host_and_full_path() {
+    for url in [
+        "https://github.com/Owner/Repo",
+        "git@github.com:owner/repo.git",
+        "ssh://git@github.com/owner/repo.git",
+    ] {
+        assert_eq!(
+            normalize_repository_website(url).as_deref(),
+            Some("github.com/owner/repo")
+        );
+    }
+    assert_eq!(
+        normalize_repository_website("https://gitlab.example/team/sub/Repo").as_deref(),
+        Some("gitlab.example/team/sub/Repo")
+    );
+    for url in [
+        "https://github.com",
+        "https://github.com/a/../b",
+        "https://github.com/a/b?token=canary",
+        "file:///a/b",
+        "https://github.com/a/%62",
+        "https://github.com/a//b",
+    ] {
+        assert_eq!(normalize_repository_website(url), None);
+    }
+}
+
+#[test]
+fn sdk_websites_are_mapped_without_becoming_env_fields() {
+    let vault = ItemVault {
+        id: "vault".into(),
+        name: "Private".into(),
+    };
+    let item = sdk_item_get(
+        &serde_json::json!({"websites":[{"url":"https://github.com/owner/repo"}]}),
+        &vault,
+    )
+    .unwrap();
+    assert_eq!(item.urls[0].href, "https://github.com/owner/repo");
+    assert!(item.fields.is_empty());
 }

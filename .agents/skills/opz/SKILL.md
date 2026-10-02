@@ -105,7 +105,7 @@ opz note <FILE>
 ### `run`
 
 Run a command with secrets from one or more items injected as environment variables. Arguments are passed unchanged; `opz` never substitutes resolved values into `$VAR` or `${VAR}` in argv.
-When no item is passed, `run` auto-detects exactly one item whose title matches the current git remote repository name such as `owner/repo`.
+When no item is passed, `run` tries a title matching a git remote repository name such as `owner/repo`, then a standard website matching `origin`.
 
 ```bash
 opz run [OPTIONS] [<ITEM>...] -- <COMMAND>...
@@ -120,6 +120,8 @@ required, make the shell an explicit trusted child:
 ```bash
 opz run my-service -- sh -c 'printf "%s" "$API_TOKEN" | trusted-consumer --token-stdin'
 ```
+
+When title auto-detection (including the opt-in legacy scan) finds no match, `run` matches `origin` against standard item websites. Website `https://github.com/acme/my-app` matches SSH or HTTPS origins for that repository, so `opz run -- npm run dev` works with an arbitrary item title. Matching retains host and full path; application URLs are not inferred, and multiple matches fail before secret resolution. The first lookup reads items in the selected vault or all vaults and caches only item IDs and normalized repository identities for 60 seconds. Raw URLs, fields, and values are never cached. URLs with ports, queries, fragments, or percent encoding are excluded.
 
 ### `github-secret`
 
@@ -187,7 +189,7 @@ opz skills
 - `migrate --restore` rewrites itemless `opz run --` usage back to explicit item arguments where it can infer the item from a Just recipe parameter or current repository title.
 - `migrate` treats `op item get <ITEM>` as a metadata signal but does not rewrite it.
 - `migrate` patches matching `package.json` script strings without reserializing the whole file.
-- `run` auto-detects an item when no item is passed and exactly one item title matches the current git remote repository. Legacy `github_repositories` scanning is opt-in with `OPZ_AUTODETECT_LEGACY_SCAN=1`.
+- `run` auto-detects an item when no item is passed and exactly one item title matches the current git remote repository. If no title matches, standard websites are matched against `origin`. Legacy `github_repositories` scanning is opt-in with `OPZ_AUTODETECT_LEGACY_SCAN=1`.
 - Environment-backed `run` is delegated to `op run` and does not resolve secret values in `opz`. Use `opz environment` for MCP-backed Environment creation, renaming, variable-name inspection, concealed placeholder addition, server tool inspection, and local `.env` mounting.
 - `opz environment variables` lists variable names only. It does not read or print Environment variable values.
 - `opz environment add` sends only variable names, empty values, and `concealed=true` to `append_variables`; set real values in the 1Password app.

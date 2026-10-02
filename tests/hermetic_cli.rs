@@ -1042,3 +1042,140 @@ fn cloudflare_worker_secret_dry_run_reads_stdin_without_writing_item() {
     assert!(stdout.contains("2 concealed field(s)"));
     assert_eq!(fs::read_dir(&harness.logs).unwrap().count(), 2);
 }
+
+fn website_detection_steps(items: serde_json::Value) -> Vec<Step> {
+    let mut steps = vec![
+        step(
+            "git",
+            &["config", "--get-regexp", r"^remote\..*\.url$"],
+            "remote.origin.url git@github.com:owner/repo.git\n",
+        ),
+        Step {
+            exit_code: 1,
+            stderr: "owner/repo isn't an item".into(),
+            ..step("op", &["item", "get", "owner/repo", "--format", "json"], "")
+        },
+        step(
+            "git",
+            &["config", "--get", "remote.origin.url"],
+            "git@github.com:owner/repo.git\n",
+        ),
+        step(
+            "op",
+            &["item", "list", "--format", "json"],
+            &serde_json::to_string(&items).unwrap(),
+        ),
+    ];
+    for item in items.as_array().unwrap() {
+        steps.push(step(
+            "op",
+            &[
+                "item",
+                "get",
+                item["id"].as_str().unwrap(),
+                "--format",
+                "json",
+            ],
+            &item.to_string(),
+        ));
+    }
+    steps
+}
+
+#[test]
+fn origin_website_detection_injects_secrets_and_reuses_metadata_cache() {
+    const CANARY: &str = "OPZ_CANARY_WEBSITE_72a1";
+    let item = serde_json::json!({"id":"abcdefghijklmnopqrstuvwx12", "title":"App development", "vault":{"id":"vault-id","name":"Private"},
+        "urls":[{"href":"https://github.com/owner/repo"}, {"href":format!("https://example.com/app?token={CANARY}")}],
+        "fields":[{"label":"API_KEY","value":CANARY}]});
+    let mut steps = website_detection_steps(serde_json::json!([item.clone()]));
+    let lookup = step(
+        "op",
+        &[
+            "item",
+            "get",
+            "abcdefghijklmnopqrstuvwx12",
+            "--format",
+            "json",
+        ],
+        &item.to_string(),
+    );
+    let resolve = step(
+        "op",
+        &[
+            "run",
+            "--no-masking",
+            "--env-file",
+            "*",
+            "--",
+            "sh",
+            "-c",
+            "env -0",
+        ],
+        &format!("API_KEY={CANARY}\0"),
+    );
+    let mut child = step("npm", &["run", "dev"], "");
+    child.capture_env = vec!["API_KEY".into()];
+    steps.extend([lookup.clone(), resolve.clone(), child.clone()]);
+    let cached_steps = website_detection_steps(serde_json::json!([]));
+    steps.extend(cached_steps.into_iter().take(3));
+    steps.extend([lookup, resolve, child]);
+    let harness = Harness::new(steps, &["git", "op", "npm"]);
+    for child_index in [7, 13] {
+        let output = harness.output(&["run", "--", "npm", "run", "dev"]);
+        assert_success(&output);
+        assert!(output.stdout.is_empty());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(CANARY));
+        assert_eq!(
+            harness
+                .invocation(child_index)
+                .env
+                .get("API_KEY")
+                .map(String::as_str),
+            Some(CANARY)
+        );
+    }
+    for entry in fs::read_dir(harness.root.join("cache/opz")).unwrap() {
+        let content = fs::read_to_string(entry.unwrap().path()).unwrap();
+        assert!(!content.contains(CANARY));
+        assert!(!content.contains("?token="));
+        assert!(!content.contains("fields"));
+    }
+}
+
+#[test]
+fn origin_website_detection_rejects_ambiguity_before_resolving() {
+    let items = serde_json::json!([
+        {"id":"first-id", "title":"App dev", "urls":[{"href":"https://github.com/owner/repo"}]},
+        {"id":"second-id", "title":"App prod", "urls":[{"href":"https://github.com/owner/repo.git"}]}
+    ]);
+    let harness = Harness::new(website_detection_steps(items), &["git", "op"]);
+    let output = harness.output(&["run", "--", "opz-child"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Multiple 1Password items"));
+    assert!(!harness.logs.join("006.json").exists());
+}
+
+#[test]
+fn origin_website_detection_does_not_match_other_hosts_or_app_urls() {
+    let items = serde_json::json!([
+        {"id":"other-id", "title":"Other host", "urls":[{"href":"https://gitlab.com/owner/repo"}]},
+        {"id":"app-id", "title":"App site", "urls":[{"href":"https://app.example.com"}]}
+    ]);
+    let harness = Harness::new(website_detection_steps(items), &["git", "op"]);
+    let output = harness.output(&["run", "--", "opz-child"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("No 1Password item matched"));
+    assert!(!harness.logs.join("006.json").exists());
+}
+
+#[test]
+fn run_help_describes_origin_website_detection() {
+    let harness = Harness::new(vec![], &[]);
+    let output = harness.output(&["run", "--help"]);
+    assert_success(&output);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("origin website"));
+    assert!(output.stderr.is_empty());
+}

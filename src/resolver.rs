@@ -82,20 +82,137 @@ pub(crate) fn resolve_run_items(context: &ItemContext, items: &[String]) -> Resu
 
     let repositories = list_remote_repo_names()
         .context("No item specified and failed to auto-detect a repository from git remotes")?;
-    let matches =
+    let mut matches =
         match_item_titles_by_github_repository_titles(context.vault.as_deref(), &repositories)?;
+    if matches.is_empty() {
+        matches = match_items_by_origin_website(context.vault.as_deref())?;
+    }
     match matches.as_slice() {
         [title] => Ok(vec![title.clone()]),
         [] => Err(anyhow!(
-            "No 1Password item matched git remote repository title: {}. Run `opz migrate`, `opz migrate --new`, or pass an item title explicitly.",
+            "No 1Password item matched a git remote repository title or origin website: {}. Run `opz migrate`, `opz migrate --new`, or pass an item title explicitly.",
             repositories.join(", ")
         )),
         _ => Err(anyhow!(
-            "Multiple 1Password items matched git remote repository title ({}): {}. Pass an item title explicitly.",
+            "Multiple 1Password items matched repository auto-detection ({}): {}. Pass an item title explicitly.",
             repositories.join(", "),
             matches.join(", ")
         )),
     }
+}
+
+/// Canonical repository identity, retaining the host and the entire path.
+/// Reject URL decorations rather than persisting potentially sensitive data.
+pub(crate) fn normalize_repository_website(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.contains(['?', '#', '%', '\\']) {
+        return None;
+    }
+    let (authority, path) = if let Some((scheme, rest)) = value.split_once("://") {
+        if !matches!(scheme, "https" | "http" | "ssh") {
+            return None;
+        }
+        rest.split_once('/')?
+    } else {
+        let (authority, path) = value.split_once(':')?;
+        if !authority.contains('@') {
+            return None;
+        }
+        (authority, path)
+    };
+    let host = authority.rsplit('@').next()?;
+    if host.is_empty()
+        || !host
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-'))
+    {
+        return None;
+    }
+    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let segments: Vec<_> = path.split('/').collect();
+    if segments.len() < 2
+        || segments.iter().any(|segment| {
+            segment.is_empty()
+                || matches!(*segment, "." | "..")
+                || !segment
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'_'))
+        })
+    {
+        return None;
+    }
+    // GitHub repository paths are case-insensitive. Other hosts may not be.
+    let host = host.to_ascii_lowercase();
+    let path = if host == "github.com" {
+        path.to_ascii_lowercase()
+    } else {
+        path.to_owned()
+    };
+    Some(format!("{host}/{path}"))
+}
+
+#[derive(Serialize, Deserialize)]
+struct ItemRepositoryWebsites {
+    item_id: String,
+    repositories: Vec<String>,
+}
+
+fn match_items_by_origin_website(vault: Option<&str>) -> Result<Vec<String>> {
+    let output = Command::new("git")
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .context("failed to read git origin")?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let Some(origin) = std::str::from_utf8(&output.stdout)
+        .ok()
+        .and_then(normalize_repository_website)
+    else {
+        return Ok(Vec::new());
+    };
+    let cache_path = item_list_cache_dir()?.join(format!(
+        "repository_website_index_{}.json",
+        stable_hex_hash(vault.unwrap_or("_all_"))
+    ));
+    let cached = fs::metadata(&cache_path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .filter(|mtime| {
+            SystemTime::now().duration_since(*mtime).unwrap_or_default() < Duration::from_secs(60)
+        })
+        .and_then(|_| fs::read(&cache_path).ok())
+        .and_then(|bytes| serde_json::from_slice::<Vec<ItemRepositoryWebsites>>(&bytes).ok());
+    let index = match cached {
+        Some(index) => index,
+        None => {
+            let mut index = Vec::new();
+            for entry in item_list_cached(vault)? {
+                let item = item_get(&entry.id)?;
+                let repositories = item
+                    .urls
+                    .iter()
+                    .filter_map(|url| normalize_repository_website(&url.href))
+                    .collect::<Vec<_>>();
+                if !repositories.is_empty() {
+                    index.push(ItemRepositoryWebsites {
+                        item_id: entry.id,
+                        repositories,
+                    });
+                }
+            }
+            fs::create_dir_all(cache_path.parent().context("website cache has no parent")?)?;
+            fs::write(&cache_path, serde_json::to_vec(&index)?)?;
+            index
+        }
+    };
+    Ok(dedupe_preserve_order(
+        index
+            .into_iter()
+            .filter(|item| item.repositories.contains(&origin))
+            .map(|item| item.item_id)
+            .collect(),
+    ))
 }
 
 pub(crate) fn match_item_titles_by_github_repository_titles(
@@ -387,6 +504,23 @@ pub(crate) fn sdk_item_get(value: &serde_json::Value, vault: &ItemVault) -> Resu
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned),
         fields,
+        urls: value
+            .get("websites")
+            .and_then(serde_json::Value::as_array)
+            .map(|websites| {
+                websites
+                    .iter()
+                    .filter_map(|website| {
+                        website
+                            .get("url")
+                            .and_then(serde_json::Value::as_str)
+                            .map(|href| ItemUrl {
+                                href: href.to_owned(),
+                            })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         vault: Some(vault.clone()),
     })
 }
@@ -431,7 +565,7 @@ fn try_find_item_exact_sdk(
     Some((|| {
         let matches = item_list_cached(vault)?
             .into_iter()
-            .filter(|entry| entry.title == item_title)
+            .filter(|entry| entry.title == item_title || entry.id == item_title)
             .collect::<Vec<_>>();
         let [entry] = matches.as_slice() else {
             return if matches.is_empty() {
@@ -830,7 +964,7 @@ pub(crate) fn find_item_from_cached_list(
     Ok((item_id, vault_id, matches[0].title.clone(), item))
 }
 
-/// Find an item by exact title without scanning every item. This is the preferred
+/// Find an item by exact title or ID without scanning every item. This is the preferred
 /// path for repository-title auto-detection.
 pub(crate) fn find_item_exact(
     vault: Option<&str>,
@@ -852,7 +986,7 @@ pub(crate) fn find_item_exact(
         .map(|vault| vault.id.clone())
         .ok_or_else(|| anyhow!("Vault ID is required. Try specifying --vault."))?;
     let resolved_title = item.title.clone().unwrap_or_else(|| item_title.to_string());
-    if resolved_title != item_title {
+    if resolved_title != item_title && item_id != item_title {
         return Err(anyhow!("No exact item matched title: {item_title}"));
     }
 
@@ -1189,7 +1323,9 @@ pub(crate) fn invalidate_item_list_cache() -> Result<()> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if (name.starts_with("item_list_") || name.starts_with("github_repository_index_"))
+        if (name.starts_with("item_list_")
+            || name.starts_with("github_repository_index_")
+            || name.starts_with("repository_website_index_"))
             && name.ends_with(".json")
         {
             fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
