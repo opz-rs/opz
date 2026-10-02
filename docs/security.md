@@ -30,7 +30,9 @@ files, caches, and other users on the same machine are not secret channels.
 - Dry-run modes MUST NOT resolve secret values. They may read item metadata and
   print destination names.
 - Metadata caches MUST contain only item IDs, titles, vault metadata, and
-  normalized repository metadata. Cache formats are internal, but values and
+  normalized repository metadata. Website auto-detection MUST retain host and
+  full repository path in its matching identity, exclude URL query/fragment
+  data, and cache neither raw website URLs nor item fields. Cache formats are internal, but values and
   item fields MUST NOT be added.
 - Temporary secret-bearing files MUST be uniquely created, use mode `0600` on
   Unix, and be removed on every normal success or error path.

@@ -22,8 +22,15 @@ pub(crate) struct ItemGet {
     #[serde(default)]
     pub(crate) fields: Vec<ItemField>,
     #[serde(default)]
+    pub(crate) urls: Vec<ItemUrl>,
+    #[serde(default)]
     pub(crate) vault: Option<ItemVault>,
 }
+#[derive(Deserialize)]
+pub(crate) struct ItemUrl {
+    pub(crate) href: String,
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ItemField {
     #[serde(default)]

@@ -71,3 +71,14 @@ Removal must update clap help, both READMEs, the bundled skill, compatibility
 tests, and migration guidance in the same change. Urgent security hardening may
 skip deprecation when retaining behavior would expose secrets; document the
 reason and migration prominently in the issue and release notes.
+
+## Repository auto-detection
+
+Itemless `run` retains exact git-remote title matching and the opt-in legacy
+metadata scan. If these find no match, it matches `origin` to standard item
+websites using host and full repository path. SSH and HTTP(S) forms and the
+`.git` suffix normalize to the same identity; GitHub paths ignore ASCII case.
+Other host paths retain case. Decorated URLs and ports are excluded. Multiple
+matches fail with exit 1 on stderr before resolving secrets or launching a child.
+Website lookup caches only item IDs and normalized repository metadata for
+60 seconds and is invalidated alongside other item caches.

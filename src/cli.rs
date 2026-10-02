@@ -132,7 +132,7 @@ pub(crate) enum Cmd {
         items: Vec<String>,
     },
 
-    /// Run command with secrets from 1Password item(s), auto-detecting by git remote when omitted
+    /// Run command with secrets from 1Password item(s), auto-detecting by git remote title or origin website when omitted
     Run {
         /// Output env file path (optional, no file generated if omitted)
         #[arg(long, value_name = "ENV")]

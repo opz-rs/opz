@@ -176,7 +176,7 @@ Options:
 * `--environment <ENV>` / `--environments <ENV>` - Use native 1Password Environments injection through `op run` instead of item lookup.
 
 Arguments:
-* `<ITEM>...` - Optional item titles to fetch secrets from. When omitted, `opz` auto-detects one item whose title exactly matches a current git remote repository name such as `owner/repo`.
+* `<ITEM>...` - Optional item titles to fetch secrets from. When omitted, `opz` tries an exact git remote repository title such as `owner/repo`, then the standard website matching `origin` (see below).
 
 When `--env-file` is set, the file remains after the command exits and contains `op://` references, not resolved values. Existing regular files are replaced safely while preserving permissions and unrelated content; symlinks and non-regular targets are rejected. New files use mode `0600` on Unix. If multiple items define the same key, later items win (`opz run foo bar ...` prefers values from `bar`).
 
@@ -213,6 +213,14 @@ opz run --environment dev -- your-command
 Environment mode is mutually exclusive with item arguments and `--env-file` in v1. `opz` delegates to `op run` and does not read Environment secret values. If your installed `op` CLI does not expose Environment runtime injection, `opz` reports a clear error and the item-backed workflow remains available.
 
 `opz` passes command arguments unchanged and never substitutes resolved values for `$VAR` or `${VAR}` in argv. The child receives values only in its environment and is an explicit trust boundary. See [Secret-handling security policy](docs/security.md).
+
+If no item title matches, `opz` matches the repository URL in an item's standard website against `origin`. For example, website `https://github.com/acme/my-app` matches origin `git@github.com:acme/my-app.git`, regardless of the item title:
+
+```sh
+opz run -- npm run dev
+```
+
+Matching retains the host and full repository path. App URLs do not imply a repository. Multiple matching items require an explicit item argument. The first lookup reads items in the selected vault (all vaults without `--vault`) and caches only item IDs and normalized repository identities for 60 seconds, never raw website URLs or credentials. URLs with ports, queries, fragments, or percent encoding are excluded.
 
 ### Generate Env File
 
@@ -421,7 +429,7 @@ opz cloudflare-secret --name worker-app --env production my-service shared-secre
 
 1. When the Desktop SDK is available, `opz` lists vaults and item metadata through `VaultsList` + `ItemsList`; one exact-title item is fetched with `ItemsGet`, while multiple exact-title items are grouped by vault and fetched with `ItemsGetAll` in batches of up to 100. The official `op` CLI remains the fallback.
 2. Item-list metadata is cached for 60 seconds and reused for exact-title lookup, title-contains fuzzy matching, and item-ID-to-vault resolution.
-3. When item titles are omitted, `opz` reads git remotes and tries exact item titles such as `owner/repo`. The legacy `github_repositories` scan is only used when `OPZ_AUTODETECT_LEGACY_SCAN=1`; it uses the same vault-batched Desktop SDK item reads.
+3. When item titles are omitted, `opz` reads git remotes and tries exact item titles such as `owner/repo`. When no title matches, standard item websites are matched against `origin`. The legacy `github_repositories` scan is only used when `OPZ_AUTODETECT_LEGACY_SCAN=1`; it uses the same vault-batched Desktop SDK item reads.
 4. SDK item fields are adapted from the SDK schema (`title`/`value`) to the CLI-compatible internal model (`label`/`value`), then `opz` builds `op://<vault_id>/<item_id>/<field>` references for valid env labels.
 5. If `--env-file` is set, `opz` writes references to that file and preserves unrelated existing lines. The usual path is file-free `opz run`; env files are for tools that require `op://` references.
 6. Secret values are resolved in one batch through `onepassword-sdk-unofficial` and 1Password Desktop App authorization when a single account can be selected (`OP_ACCOUNT` takes precedence). If the desktop SDK is unavailable, `opz` falls back to `op run --env-file <temp> -- sh -c 'env -0'`, then to `op read` per reference for non-timeout failures. Set `OPZ_ONEPASSWORD_SDK=off` to disable all unofficial SDK paths.

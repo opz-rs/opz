@@ -171,7 +171,7 @@ opz --environment <ENV> -- <COMMAND>...
 * `--environment <ENV>` / `--environments <ENV>` - item lookup の代わりに、`op run` 経由で 1Password Environments の native injection を使います。
 
 引数:
-* `<ITEM>...` - secret を取得する任意のアイテムタイトル。省略時は、現在の git remote repository 名（例: `owner/repo`）と完全一致する title の item を 1 件だけ自動検出します。
+* `<ITEM>...` - secret を取得する任意のアイテムタイトル。省略時は git remote repository 名（例: `owner/repo`）と完全一致する title を探し、一致しなければ標準 website と `origin` を照合します（後述）。
 
 `--env-file` を指定すると、env ファイルはコマンド終了後も残り、解決済みの値ではなく `op://` 参照を含みます。既存の通常ファイルは permission と無関係な内容を保ったまま安全に置換し、symlink と通常ファイル以外の target は拒否します。Unix で新規作成するファイルは mode `0600` です。複数アイテムで同じキーがある場合は後勝ちです（`opz run foo bar ...` では `bar` の値が優先）。
 
@@ -208,6 +208,14 @@ opz run --environment dev -- your-command
 Environment mode は v1 では item 引数や `--env-file` と同時に使えません。`opz` は `op run` に実行を委譲し、Environment の secret 値を読みません。インストール済みの `op` CLI が Environment runtime injection を公開していない場合、`opz` は明確なエラーを返し、従来の item-backed workflow はそのまま使えます。
 
 `opz` は command 引数を変更せずに渡し、解決済みの値を argv 内の `$VAR` や `${VAR}` に代入しません。値は child の環境変数だけに渡され、child は明示的な trust boundary です。詳細は [Secret-handling security policy](docs/security.md) を参照してください。
+
+item title に一致する候補がなければ、1Password item の標準 website に登録した repository URL と `origin` を照合します。たとえば website が `https://github.com/acme/my-app` なら、origin が `git@github.com:acme/my-app.git` の repository で次のように実行できます。item 名は自由です。
+
+```sh
+opz run -- npm run dev
+```
+
+ホスト名と repository の全パスを照合します。アプリの公開 URL から repository は推定しません。複数 item が一致する場合は、item を明示してください。初回は選択した Vault（`--vault` 未指定なら全 Vault）の item を読み取り、item ID と正規化した repository 情報だけを 60 秒キャッシュします。website の生 URL や credential は保存しません。ポート付き URL、query、fragment、percent encoding は照合対象外です。
 
 ### Env ファイル生成
 
