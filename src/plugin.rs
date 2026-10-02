@@ -1290,7 +1290,11 @@ fn ensure_unique(label: &str, values: &[String]) -> Result<()> {
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
-    format!("{:x}", digest.finalize())
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn version_tuple(version: &str) -> Result<(u64, u64, u64)> {
@@ -1335,6 +1339,18 @@ pub(crate) fn is_plugin_metadata_label(label: &str) -> bool {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn sha256_hex_matches_known_vectors() {
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn bundled_registry_is_digest_valid() {
