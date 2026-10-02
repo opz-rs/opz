@@ -883,6 +883,52 @@ fn test_parse_env_file_allows_export_with_multiple_spaces() {
 }
 
 #[test]
+fn test_parse_env_file_preserves_keys_starting_with_export() {
+    let tmp_dir = TempDir::new().unwrap();
+    let file_path = tmp_dir.path().join(".env");
+    fs::write(
+        &file_path,
+        "exportTOKEN=abc\nexport=literal\nexport\tTOKEN=def\n",
+    )
+    .unwrap();
+    assert_eq!(
+        parse_env_file(&file_path).unwrap(),
+        vec![
+            ("exportTOKEN".to_string(), "abc".to_string()),
+            ("export".to_string(), "literal".to_string()),
+            ("TOKEN".to_string(), "def".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn test_parse_env_file_quote_boundaries_and_trailing_comments() {
+    let tmp_dir = TempDir::new().unwrap();
+    let file_path = tmp_dir.path().join(".env");
+    for (input, expected) in [
+        (r#""abc" # discard"#, "abc"),
+        ("'abc' # discard", "abc"),
+        (r#""keep \" # here" # discard"#, r#"keep \" # here"#),
+        (r#""path\\ # here" # discard"#, r#"path\\ # here"#),
+        (r#""abc"#, r#""abc"#),
+        (r#"abc""#, r#"abc""#),
+        ("'abc", "'abc"),
+        ("abc'", "abc'"),
+        ("\"", "\""),
+        ("'", "'"),
+        ("\"\"", ""),
+        ("''", ""),
+    ] {
+        fs::write(&file_path, format!("KEY={input}\n")).unwrap();
+        assert_eq!(
+            parse_env_file(&file_path).unwrap(),
+            vec![("KEY".to_string(), expected.to_string())],
+            "input={input:?}"
+        );
+    }
+}
+
+#[test]
 fn test_parse_env_file_duplicate_keys_last_wins() {
     let tmp_dir = TempDir::new().unwrap();
     let file_path = tmp_dir.path().join(".env");
