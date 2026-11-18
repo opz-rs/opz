@@ -24,9 +24,9 @@ pub(crate) fn initialize(config: Option<&Path>, load: bool) -> Result<Guard> {
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (config, load);
-        return Err(anyhow!(
+        Err(anyhow!(
             "--session-keyring is currently supported only on Linux"
-        ));
+        ))
     }
     #[cfg(target_os = "linux")]
     {

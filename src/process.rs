@@ -118,6 +118,18 @@ pub(crate) fn op_command_timeout() -> Duration {
         .unwrap_or_else(|| Duration::from_secs(30))
 }
 
+fn drain_pipe(
+    mut pipe: impl std::io::Read + Send + 'static,
+) -> std::sync::mpsc::Receiver<std::io::Result<Vec<u8>>> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = pipe.read_to_end(&mut bytes).map(|_| bytes);
+        let _ = sender.send(result);
+    });
+    receiver
+}
+
 pub(crate) fn command_output_with_timeout(
     mut command: Command,
     display: &str,
@@ -129,32 +141,47 @@ pub(crate) fn command_output_with_timeout(
         .spawn()
         .with_context(|| format!("failed to run {display}"))?;
     let started = Instant::now();
-
+    // Drain both pipes while the process runs: waiting for exit first deadlocks
+    // on outputs larger than a pipe's capacity. Readers never relay raw bytes.
+    let stdout = drain_pipe(child.stdout.take().context("missing child stdout pipe")?);
+    let stderr = drain_pipe(child.stderr.take().context("missing child stderr pipe")?);
+    let timeout_error = || {
+        anyhow!(
+        "{display} timed out after {} seconds. Check 1Password CLI authentication with `op whoami`, or set OPZ_OP_TIMEOUT_SECONDS to a larger value.",
+        timeout.as_secs()
+    )
+    };
     loop {
-        if child
+        if let Some(status) = child
             .try_wait()
             .with_context(|| format!("failed to poll {display}"))?
-            .is_some()
         {
-            let mut output = child
-                .wait_with_output()
-                .with_context(|| format!("failed to wait for {display}"))?;
+            let collect = |receiver: std::sync::mpsc::Receiver<std::io::Result<Vec<u8>>>| {
+                receiver
+                    .recv_timeout(timeout.saturating_sub(started.elapsed()))
+                    .map_err(|err| match err {
+                        std::sync::mpsc::RecvTimeoutError::Timeout => timeout_error(),
+                        std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                            anyhow!("failed to collect output from {display}")
+                        }
+                    })?
+                    .with_context(|| format!("failed to read output from {display}"))
+            };
+            let mut output = Output {
+                status,
+                stdout: collect(stdout)?,
+                stderr: collect(stderr)?,
+            };
             if auth::enabled() {
-                // Do not relay a known authentication token even if a tool echoes it.
                 output.stderr = auth::redact(&String::from_utf8_lossy(&output.stderr)).into_bytes();
             }
             return Ok(output);
         }
-
         if started.elapsed() >= timeout {
             let _ = child.kill();
-            let _ = child.wait_with_output();
-            return Err(anyhow!(
-                "{display} timed out after {} seconds. Check 1Password CLI authentication with `op whoami`, or set OPZ_OP_TIMEOUT_SECONDS to a larger value.",
-                timeout.as_secs()
-            ));
+            let _ = child.wait();
+            return Err(timeout_error());
         }
-
         thread::sleep(Duration::from_millis(50));
     }
 }

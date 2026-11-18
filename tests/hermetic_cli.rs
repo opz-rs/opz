@@ -1404,3 +1404,50 @@ fn keyring_plugin_target_does_not_inherit_session() {
     assert!(!String::from_utf8_lossy(&out.stderr).contains(token));
     assert!(!String::from_utf8_lossy(&out.stdout).contains(token));
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_item_edit_drains_large_stdout_and_stderr_without_false_timeout() {
+    let token = "CANARY_LARGE_EDIT_SESSION_741";
+    let mut edit = step(
+        "op",
+        &["item", "edit", "item-id", "github_repositories=owner/repo"],
+        &"x".repeat(1024 * 1024),
+    );
+    edit.stdout.push_str(token);
+    edit.stderr = "y".repeat(1024 * 1024);
+    edit.stderr.push_str(token);
+    let h = Harness::new(
+        vec![
+            step(
+                "op",
+                &["item", "get", "example", "--format", "json"],
+                &item_json("example"),
+            ),
+            edit,
+        ],
+        &["op"],
+    );
+    let out = h
+        .command()
+        .env(
+            "OPZ_TEST_AUTH_SESSION",
+            format!(r#"{{"OP_SESSION_native":"{token}"}}"#),
+        )
+        .env("OPZ_OP_TIMEOUT_SECONDS", "2")
+        .args([
+            "--session-keyring",
+            "github-repo",
+            "--repo",
+            "owner/repo",
+            "example",
+        ])
+        .output()
+        .unwrap();
+    assert_success(&out);
+    assert!(out.stdout.len() >= 1024 * 1024);
+    assert!(out.stderr.len() >= 1024 * 1024);
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(token));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains(token));
+    assert_eq!(h.invocation(1).tool, "op");
+}
