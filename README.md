@@ -42,6 +42,49 @@ cargo install opz
 
 ## Usage
 
+### Opt-in Linux session-keyring authentication
+
+Normal `op` authentication is unchanged. If desktop-app integration cannot be
+used, explicitly enable the optional Linux Secret Service session-keyring mode:
+
+```sh
+opz --session-keyring auth login
+opz --session-keyring auth status
+opz --session-keyring run --vault Development my-service -- your-command
+opz --session-keyring auth logout
+```
+
+Run `auth login` in your own interactive terminal. Enter credentials only into
+`op`'s prompts, never into agent chat. The first login adds a single account to
+`${XDG_CONFIG_HOME:-$HOME/.config}/opz/manual-auth`; `--session-config <DIR>` selects
+a different dedicated `op` config directory and must be reused on subsequent
+commands. No global `op` settings are changed.
+
+The flag is required on every invocation; there is no implicit activation or
+fallback from normal authentication. Only the OS **session** collection is used:
+no persistent-keyring or plaintext-file fallback. Missing, locked, expired, or
+ambiguous sessions fail closed. Manual sessions expire after inactivity; logging
+out of the OS clears the session collection. `auth logout` asks `op` to sign out
+and deletes the local credential; a revocation failure is explicitly reported.
+
+Credentials are held privately in `opz` and attached only to internal `op`
+commands. They are not placed in the parent process environment or argv. Opt-in
+mode removes ambient 1Password authentication variables from other subprocesses
+and the final target (including plugin targets). Reserved `OP_SESSION*`,
+`OP_SERVICE_ACCOUNT_TOKEN`, and `OP_CONNECT_*` auth variables are not delivered to
+targets even if supplied as item fields. The selected child still receives the
+requested application secrets and must be trusted.
+
+This mode disables the Desktop SDK and uses per-reference `op read` instead of
+batch `op run`, to avoid passing the session to an intermediate shell. It does
+not support `opz environment`, `run --environment`, or the SDK bridge; those paths
+retain their existing authentication when the flag is absent. The mode currently
+fails explicitly on macOS and Windows, where normal behavior is unchanged.
+
+A same-user process may still access the unlocked OS keyring: this is not a
+per-agent, per-chat, or per-vault security boundary. Use a dedicated account with
+appropriate vault permissions if tighter isolation is needed.
+
 ### Find Items
 
 Search item titles by keyword:

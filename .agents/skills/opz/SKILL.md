@@ -19,6 +19,18 @@ Use this skill when you need to work with 1Password-backed secrets through the `
 - `--env-file <ENV>` writes generated `op://` references to a file for `run` and `gen`; prefer file-free `run` unless another tool requires an env file.
 - `--environment <ENV>` / `--environments <ENV>` uses native 1Password Environments injection through `op run`; do not combine it with item arguments or `--env-file`.
 
+## Optional Linux session-keyring authentication
+
+Only when explicitly requested, use `opz --session-keyring auth login/status/logout`
+and `opz --session-keyring run <ITEM> -- <COMMAND>`. Login is interactive in the
+user's terminal; never request credentials in chat. Every invocation must opt in.
+The default dedicated config is `${XDG_CONFIG_HOME:-$HOME/.config}/opz/manual-auth`;
+repeat `--session-config <DIR>` if overriding it. Never fall back to app auth or
+plaintext storage on a keyring failure. This mode sends its session only to
+internal `op`; other tools and targets do not inherit it. It disables SDK and
+batch `op run` and rejects Environment/MCP delegation. Same-user keyring access
+remains possible. On other operating systems use the normal authentication path.
+
 ## Commands
 
 ### `find`

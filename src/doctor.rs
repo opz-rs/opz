@@ -173,7 +173,7 @@ pub(crate) fn desktop_sdk_unavailable_check() -> DoctorCheck {
 }
 
 pub(crate) fn check_op_run_environments_support() -> DoctorCheck {
-    let mut cmd = Command::new("op");
+    let mut cmd = auth::op_command();
     cmd.arg("run").arg("--help");
     cmd.stdin(Stdio::null());
     match command_output_with_timeout(cmd, "`op run --help`", op_command_timeout()) {
@@ -296,7 +296,7 @@ pub(crate) enum SecretlintOutcome {
 pub(crate) fn run_secretlint_on_files(
     findings: &[CredentialFileFinding],
 ) -> std::result::Result<SecretlintOutcome, String> {
-    let mut cmd = Command::new("secretlint");
+    let mut cmd = auth::external_command("secretlint");
     cmd.arg("--format").arg("json").arg("--no-color");
     for finding in findings {
         cmd.arg(&finding.path);
@@ -310,7 +310,9 @@ pub(crate) fn run_secretlint_on_files(
         Some(0) => Ok(SecretlintOutcome::Clean),
         Some(1) => Ok(SecretlintOutcome::Findings),
         _ => {
-            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stderr = auth::redact(&String::from_utf8_lossy(&out.stderr))
+                .trim()
+                .to_string();
             Err(if stderr.is_empty() {
                 format!("secretlint failed with status {}", out.status)
             } else {
@@ -329,7 +331,7 @@ pub(crate) fn find_plaintext_credential_files_in_project() -> Result<Vec<Credent
 }
 
 pub(crate) fn project_scan_root() -> Result<PathBuf> {
-    if let Ok(out) = Command::new("git")
+    if let Ok(out) = auth::external_command("git")
         .args(["rev-parse", "--show-toplevel"])
         .output()
     {
@@ -498,7 +500,12 @@ pub(crate) fn optional_cli_check(command: &str, args: &[&str], note: &str) -> Do
 }
 
 pub(crate) fn command_stdout(command: &str, args: &[&str]) -> std::result::Result<String, String> {
-    let out = Command::new(command).args(args).output().map_err(|err| {
+    let mut process = if command == "op" {
+        auth::op_command()
+    } else {
+        auth::external_command(command)
+    };
+    let out = process.args(args).output().map_err(|err| {
         format!(
             "failed to run `{}`: {err}",
             command_with_args(command, args)
@@ -506,7 +513,9 @@ pub(crate) fn command_stdout(command: &str, args: &[&str]) -> std::result::Resul
     })?;
 
     if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let stderr = auth::redact(&String::from_utf8_lossy(&out.stderr))
+            .trim()
+            .to_string();
         let detail = if stderr.is_empty() {
             format!("exit status {}", out.status)
         } else {
@@ -518,12 +527,14 @@ pub(crate) fn command_stdout(command: &str, args: &[&str]) -> std::result::Resul
         ));
     }
 
-    String::from_utf8(out.stdout).map_err(|err| {
-        format!(
-            "`{}` output was not valid UTF-8: {err}",
-            command_with_args(command, args)
-        )
-    })
+    String::from_utf8(out.stdout)
+        .map(|text| auth::redact(&text))
+        .map_err(|err| {
+            format!(
+                "`{}` output was not valid UTF-8: {err}",
+                command_with_args(command, args)
+            )
+        })
 }
 
 pub(crate) fn command_with_args(command: &str, args: &[&str]) -> String {

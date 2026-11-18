@@ -41,6 +41,7 @@ pub(crate) fn run_with_item_sections(
             cmd.env(key, value.expose());
         }
 
+        auth::sanitize_child(&mut cmd);
         let status = cmd
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -62,7 +63,7 @@ pub(crate) fn build_child_command(command: &[String]) -> Result<Command> {
 
     #[cfg(unix)]
     {
-        let mut child = Command::new("sh");
+        let mut child = auth::external_command("sh");
         child.args(["-c", "exec \"$@\"", "sh"]);
         child.arg(program);
         child.args(&command[1..]);
@@ -71,7 +72,7 @@ pub(crate) fn build_child_command(command: &[String]) -> Result<Command> {
 
     #[cfg(windows)]
     {
-        let mut child = Command::new(program);
+        let mut child = auth::external_command(program);
         child.args(&command[1..]);
         Ok(child)
     }
@@ -83,7 +84,7 @@ pub(crate) fn op_json(args: &[&str]) -> Result<serde_json::Value> {
         "load_inputs.op_json",
         vec![KeyValue::new("op.operation", operation)],
         || {
-            let mut cmd = Command::new("op");
+            let mut cmd = auth::op_command();
             cmd.args(args);
             cmd.stdin(Stdio::null());
             let display = format!("`op {}`", args.join(" "));
@@ -135,9 +136,14 @@ pub(crate) fn command_output_with_timeout(
             .with_context(|| format!("failed to poll {display}"))?
             .is_some()
         {
-            return child
+            let mut output = child
                 .wait_with_output()
-                .with_context(|| format!("failed to wait for {display}"));
+                .with_context(|| format!("failed to wait for {display}"))?;
+            if auth::enabled() {
+                // Do not relay a known authentication token even if a tool echoes it.
+                output.stderr = auth::redact(&String::from_utf8_lossy(&output.stderr)).into_bytes();
+            }
+            return Ok(output);
         }
 
         if started.elapsed() >= timeout {

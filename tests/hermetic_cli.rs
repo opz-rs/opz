@@ -1179,3 +1179,228 @@ fn run_help_describes_origin_website_detection() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("origin website"));
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn auth_requires_explicit_opt_in_and_help_documents_it() {
+    let h = Harness::new(vec![], &[]);
+    let out = h.output(&["auth", "status"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("require explicit --session-keyring"));
+    let help = h.output(&["--help"]);
+    assert_success(&help);
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--session-keyring"));
+    assert!(!h
+        .output(&["--session-config", "unused", "doctor"])
+        .status
+        .success());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_auth_reaches_only_op_and_never_the_target_or_output() {
+    let token = "CANARY_KEYRING_AUTH_776ab";
+    let ambient = "CANARY_AMBIENT_AUTH_912ac";
+    let mut get = step(
+        "op",
+        &["item", "get", "example", "--format", "json"],
+        &item_json("example"),
+    );
+    get.capture_env = vec![
+        "OP_SESSION_native".into(),
+        "OP_SESSION_ambient".into(),
+        "OP_SERVICE_ACCOUNT_TOKEN".into(),
+        "OP_CONNECT_TOKEN".into(),
+        "OP_CONFIG_DIR".into(),
+        "OP_BIOMETRIC_UNLOCK_ENABLED".into(),
+    ];
+    let mut read = step(
+        "op",
+        &["read", "op://vault-id/item-id/API_KEY"],
+        "CANARY_ITEM_VALUE_213",
+    );
+    read.capture_env = vec!["OP_SESSION_native".into()];
+    let mut child = step("opz-child", &["literal $API_KEY"], "");
+    child.capture_env = vec![
+        "API_KEY".into(),
+        "OP_SESSION_native".into(),
+        "OP_SESSION_ambient".into(),
+        "OP_SERVICE_ACCOUNT_TOKEN".into(),
+        "OP_CONNECT_TOKEN".into(),
+        "OPZ_TEST_AUTH_SESSION".into(),
+    ];
+    let h = Harness::new(vec![get, read, child], &["op", "opz-child"]);
+    let out = h
+        .command()
+        .env(
+            "OPZ_TEST_AUTH_SESSION",
+            format!(r#"{{"OP_SESSION_native":"{token}"}}"#),
+        )
+        .env("OP_SESSION_ambient", ambient)
+        .env("OP_SERVICE_ACCOUNT_TOKEN", ambient)
+        .env("OP_CONNECT_TOKEN", ambient)
+        .args([
+            "--session-keyring",
+            "run",
+            "example",
+            "--",
+            "opz-child",
+            "literal $API_KEY",
+        ])
+        .output()
+        .unwrap();
+    assert_success(&out);
+    let op = h.invocation(0);
+    assert_eq!(op.env["OP_SESSION_native"], token);
+    assert_eq!(op.env["OP_BIOMETRIC_UNLOCK_ENABLED"], "false");
+    assert!(!op.env.contains_key("OP_SESSION_ambient"));
+    assert!(!op.env.contains_key("OP_SERVICE_ACCOUNT_TOKEN"));
+    assert!(!op.env.contains_key("OP_CONNECT_TOKEN"));
+    assert_eq!(h.invocation(1).env["OP_SESSION_native"], token);
+    let target = h.invocation(2);
+    assert_eq!(target.env.len(), 1);
+    assert_eq!(target.env["API_KEY"], "CANARY_ITEM_VALUE_213");
+    assert_eq!(target.args, ["literal $API_KEY"]);
+    for secret in [token, ambient, "CANARY_ITEM_VALUE_213"] {
+        assert!(!String::from_utf8_lossy(&out.stdout).contains(secret));
+        assert!(!String::from_utf8_lossy(&out.stderr).contains(secret));
+        for i in 0..3 {
+            assert!(!h.invocation(i).args.iter().any(|a| a.contains(secret)));
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_disabled_preserves_normal_op_environment() {
+    let mut get = step("op", &["item", "list", "--format", "json"], "[]");
+    get.capture_env = vec!["OP_SESSION_ambient".into()];
+    let h = Harness::new(vec![get], &["op"]);
+    let out = h
+        .command()
+        .env("OP_SESSION_ambient", "normal-auth-canary")
+        .env("OPZ_TEST_AUTH_SESSION", "invalid-json-must-not-be-read")
+        .args(["find", "anything"])
+        .output()
+        .unwrap();
+    assert_success(&out);
+    assert_eq!(
+        h.invocation(0).env["OP_SESSION_ambient"],
+        "normal-auth-canary"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_mode_fails_closed_without_session_or_on_delegation() {
+    let h = Harness::new(vec![], &[]);
+    let out = h
+        .command()
+        .env_remove("OPZ_TEST_AUTH_SESSION")
+        .args(["--session-keyring", "auth", "status"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no saved session"));
+    for args in [
+        vec![
+            "--session-keyring",
+            "run",
+            "--environment",
+            "dev",
+            "--",
+            "child",
+        ],
+        vec!["--session-keyring", "environment", "list"],
+    ] {
+        let out = h.output(&args);
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("separate authentication"));
+    }
+    assert_eq!(fs::read_dir(&h.logs).unwrap().count(), 0);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_status_and_logout_never_relay_auth_output() {
+    let token = "CANARY_SESSION_ERRORS_612";
+    let mut check = step("op", &["whoami"], token);
+    check.stderr = token.into();
+    check.exit_code = 1;
+    let mut logout = step("op", &["signout"], token);
+    logout.stderr = token.into();
+    logout.exit_code = 1;
+    let h = Harness::new(vec![check, logout], &["op"]);
+    for action in ["status", "logout"] {
+        let out = h
+            .command()
+            .env(
+                "OPZ_TEST_AUTH_SESSION",
+                format!(r#"{{"OP_SESSION_native":"{token}"}}"#),
+            )
+            .args(["--session-keyring", "auth", action])
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        assert!(!String::from_utf8_lossy(&out.stdout).contains(token));
+        assert!(!String::from_utf8_lossy(&out.stderr).contains(token));
+        if action == "logout" {
+            assert!(String::from_utf8_lossy(&out.stderr).contains("local session removed"));
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_plugin_target_does_not_inherit_session() {
+    let token = "CANARY_PLUGIN_SESSION_918";
+    let mut child = step("codex", &["exec", "task"], "");
+    child.capture_env = vec![
+        "OPENAI_API_KEY".into(),
+        "OP_SESSION_native".into(),
+        "OP_SESSION_ambient".into(),
+        "OPZ_TEST_AUTH_SESSION".into(),
+    ];
+    let h = Harness::new(
+        vec![
+            step(
+                "op",
+                &["item", "get", "example", "--format", "json"],
+                &plugin_item_json("example"),
+            ),
+            step(
+                "op",
+                &["read", "op://vault-id/item-id/OPENAI_API_KEY"],
+                "CANARY_APP_KEY_847",
+            ),
+            child,
+        ],
+        &["op", "codex"],
+    );
+    let out = h
+        .command()
+        .env(
+            "OPZ_TEST_AUTH_SESSION",
+            format!(r#"{{"OP_SESSION_native":"{token}"}}"#),
+        )
+        .env("OP_SESSION_ambient", "ambient-plugin-canary")
+        .args([
+            "--session-keyring",
+            "plugin",
+            "run",
+            "codex-openai@1.0.0",
+            "--item",
+            "example",
+            "--",
+            "codex",
+            "exec",
+            "task",
+        ])
+        .output()
+        .unwrap();
+    assert_success(&out);
+    let target = h.invocation(2);
+    assert_eq!(target.env.len(), 1);
+    assert_eq!(target.env["OPENAI_API_KEY"], "CANARY_APP_KEY_847");
+    assert!(!String::from_utf8_lossy(&out.stderr).contains(token));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(token));
+}

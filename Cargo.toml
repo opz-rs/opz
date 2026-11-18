@@ -50,3 +50,6 @@ required-features = ["test-support"]
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "6.0.0-rc.1", features = ["crypto-rust"] }

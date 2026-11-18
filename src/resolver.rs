@@ -158,7 +158,7 @@ struct ItemRepositoryWebsites {
 }
 
 fn match_items_by_origin_website(vault: Option<&str>) -> Result<Vec<String>> {
-    let output = Command::new("git")
+    let output = auth::external_command("git")
         .args(["config", "--get", "remote.origin.url"])
         .output()
         .context("failed to read git origin")?;
@@ -309,16 +309,17 @@ pub(crate) fn resolve_env_vars(env_lines: &[String]) -> Result<HashMap<String, S
         None => {}
     }
 
-    match resolve_env_vars_batch(&references) {
-        Ok(env_vars) => return Ok(env_vars),
-        Err(err) if !should_fallback_to_op_read(&err) => {
-            return Err(err.context(
+    if !auth::enabled() {
+        match resolve_env_vars_batch(&references) {
+            Ok(env_vars) => return Ok(env_vars),
+            Err(err) if !should_fallback_to_op_read(&err) => {
+                return Err(err.context(
                 "batch secret resolution timed out; skipped per-field fallback to avoid waiting once per secret",
             ));
+            }
+            Err(_) => {}
         }
-        Err(_) => {}
     }
-
     // Fallback path for environments where batch resolution is unavailable.
     let mut env_vars: HashMap<String, SecretValue> = HashMap::with_capacity(references.len());
     for line in env_lines {
@@ -380,6 +381,9 @@ pub(crate) fn desktop_sdk_enabled() -> bool {
 }
 
 pub(crate) fn desktop_sdk_explicitly_disabled() -> bool {
+    if auth::enabled() {
+        return true;
+    }
     env::var("OPZ_ONEPASSWORD_SDK")
         .map(|value| matches!(value.as_str(), "0" | "false" | "FALSE" | "off" | "OFF"))
         .unwrap_or(false)
@@ -674,7 +678,7 @@ pub(crate) fn resolve_env_vars_batch(
             }
             temp_env.flush()?;
 
-            let mut cmd = Command::new("op");
+            let mut cmd = auth::op_command();
             cmd.arg("run")
                 .arg("--no-masking")
                 .arg("--env-file")

@@ -37,6 +37,39 @@ cargo install opz
 
 ## 使い方
 
+### Linux セッションキーリング認証（明示的な有効化）
+
+通常の `op` 認証は変更しません。アプリ連携を利用できない場合だけ、各コマンドに `--session-keyring` を付けます。
+
+```sh
+opz --session-keyring auth login
+opz --session-keyring auth status
+opz --session-keyring run --vault Development my-service -- your-command
+opz --session-keyring auth logout
+```
+
+`auth login` は利用者自身の対話ターミナルで実行し、資格情報は `op` の入力画面にだけ入力してください。
+初回は `${XDG_CONFIG_HOME:-$HOME/.config}/opz/manual-auth` に単一アカウントを登録します。
+`--session-config <DIR>` で別の専用設定ディレクトリを指定した場合は、以後のコマンドにも同じ指定が必要です。
+通常の `op` 設定は変更しません。
+
+セッションは OS のセッションキーリングだけに保持し、永続キーリングや平文ファイルにはフォールバックしません。
+キーリングのロック、認証切れ、未登録、複数の一致項目はエラーにします。
+未使用時間による認証切れや OS ログアウト後は再認証が必要です。
+`auth logout` は `op signout` とローカル認証情報の削除を行い、サインアウトに失敗した場合は明示します。
+
+認証情報は内部の `op` にだけ渡し、実行対象やプラグインの子プロセスには渡しません。
+有効時は、親から継承した認証用環境変数も他の子プロセスから除去します。
+項目のフィールドに指定された `OP_SESSION*`、`OP_SERVICE_ACCOUNT_TOKEN`、`OP_CONNECT_*` の認証変数も対象への注入から除外します。
+対象のプログラムには要求したアプリ用の秘密情報が渡るため、信頼できるプログラムだけを指定してください。
+
+このモードでは Desktop SDK を無効にし、途中のシェルへ認証情報を渡さないよう `op run` による一括取得を `op read` に置き換えます。
+`opz environment`、`run --environment`、SDK ブリッジとの併用はできません。
+macOS と Windows ではこのオプションだけが未対応エラーになり、通常動作は維持します。
+
+同じ OS ユーザーの別プロセスがキーリングへアクセスできる可能性は残ります。
+チャット別・Vault 別の権限境界にはならないため、必要ならアクセス範囲を限定した専用アカウントを使用してください。
+
 ### アイテム検索
 
 タイトルのキーワードで 1Password アイテムを検索します:

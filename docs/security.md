@@ -74,3 +74,19 @@ shell. `opz` does not substitute `$VAR` or `${VAR}` in argv.
 
 Report suspected leaks without including the secret value. Rotate any exposed
 credential before collecting logs or opening an issue.
+
+## Opt-in manual session authentication
+
+`--session-keyring` is an explicit Linux-only authentication boundary. It stores
+only CLI session assignments in the Secret Service session collection, keyed by
+the dedicated configuration directory. It never falls back to persistent storage.
+The CLI's own account/config/encrypted-session files remain managed by `op`.
+The `opz` process environment is never mutated. Auth variables are attached only
+to internal `op` commands, removed from other tools and final children, and never
+put in argv or diagnostic output. SDK, MCP and native Environment delegation are
+rejected or disabled in this mode; reference resolution uses `op read` without an
+intermediate shell. Shell assignments from sign-in are parsed as data, not eval'd.
+Session-keyring possession does not isolate processes under the same OS user or
+reduce the account's vault permissions. Inactivity expiration is not an absolute
+lifetime. Logout removes the local credential even if remote signout fails and
+reports that failure. Normal mode does not access the session keyring.

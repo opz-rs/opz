@@ -60,7 +60,7 @@ impl Redactor {
     pub(crate) fn redact(&self, text: &str) -> String {
         self.secrets
             .iter()
-            .fold(text.to_string(), |redacted, secret| {
+            .fold(auth::redact(text), |redacted, secret| {
                 redacted.replace(secret, REDACTED)
             })
     }

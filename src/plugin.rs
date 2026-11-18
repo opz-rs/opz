@@ -428,6 +428,7 @@ fn run_plugin_target(
         child.env(key, value.expose());
     }
 
+    auth::sanitize_child(&mut child);
     let status = child
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
