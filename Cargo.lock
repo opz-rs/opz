@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "opz"
-version = "2026.8.2"
+version = "2026.11.2"
 dependencies = [
  "anyhow",
  "clap",
