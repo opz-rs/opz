@@ -67,7 +67,7 @@ pub(crate) enum Cmd {
     /// Find items by keyword (title contains)
     Find { query: String },
 
-    /// Check 1Password CLI status and external command dependencies
+    /// Check authentication and dependencies for the active mode; session-keyring skips SDK/MCP/Environment probes
     Doctor,
 
     /// Manage 1Password Developer Environments through the 1Password MCP server
@@ -665,6 +665,14 @@ mod tests {
 #[cfg(test)]
 mod session_parser_tests {
     use super::*;
+    #[test]
+    fn parses_keyring_doctor() {
+        let args = ["opz", "--session-keyring", "doctor"].map(OsString::from);
+        let cli = parse_cli(&args).unwrap();
+        assert!(cli.session_keyring);
+        assert!(matches!(cli.cmd, Some(Cmd::Doctor)));
+    }
+
     #[test]
     fn parses_opt_in_commands() {
         for args in [
