@@ -51,3 +51,10 @@ Publication requires Linux/macOS/Windows CI and release-policy checks, followed
 by the repository's CalVer, cargo-dist, crates.io Trusted Publishing, archive
 smoke, and cargo-binstall verification workflows. Their final results are
 recorded in the published GitHub release notes.
+
+## Publication recovery
+
+The initial `2026.11.0` crate was published, but its cargo-dist release could not
+complete because the default macOS 14 ARM runner was retired. The follow-up
+release explicitly selects macOS 15 ARM and Intel runners while preserving
+cargo-dist 0.31.0. The existing crate and immutable tag are not overwritten.
