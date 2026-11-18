@@ -1115,7 +1115,7 @@ fn test_build_op_item_edit_github_repositories_args() {
 #[test]
 #[cfg(unix)]
 fn test_command_output_with_timeout_kills_slow_command() {
-    let mut cmd = Command::new("sh");
+    let mut cmd = auth::external_command("sh");
     cmd.arg("-c").arg("sleep 5");
 
     let err =

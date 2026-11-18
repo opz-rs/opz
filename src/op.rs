@@ -390,13 +390,7 @@ pub(crate) fn run_op_item_edit_github_repositories(
     repositories: &[String],
 ) -> Result<()> {
     let args = build_op_item_edit_github_repositories_args(vault, item_id, repositories);
-    let status = Command::new("op")
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("failed to run `op item edit`")?;
+    let status = auth::op_status(&args)?;
 
     if !status.success() {
         return Err(anyhow!("op item edit failed with status: {}", status));
@@ -419,13 +413,7 @@ pub(crate) fn run_op_item_edit_title(
         args.push("--vault".to_string());
         args.push(vault.to_string());
     }
-    let status = Command::new("op")
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("failed to run `op item edit`")?;
+    let status = auth::op_status(&args)?;
 
     if !status.success() {
         return Err(anyhow!("op item edit failed with status: {}", status));
@@ -561,7 +549,7 @@ pub(crate) fn run_op_item_create(args: &[String], template: &ItemCreateTemplate)
             let sensitive_fields = collect_create_stdout_sensitive_fields(template);
             let redactor =
                 Redactor::from_strings(sensitive_fields.iter().map(|(_, value)| value.clone()));
-            let mut cmd = Command::new("op");
+            let mut cmd = auth::op_command();
             cmd.args(args);
 
             let mut child = cmd
@@ -606,7 +594,7 @@ pub(crate) fn run_op_item_create(args: &[String], template: &ItemCreateTemplate)
 }
 
 pub(crate) fn list_remote_repo_names() -> Result<Vec<String>> {
-    let out = Command::new("git")
+    let out = auth::external_command("git")
         .args(["config", "--get-regexp", r"^remote\..*\.url$"])
         .output()
         .context("failed to run `git config --get-regexp '^remote\\..*\\.url$'`")?;
@@ -843,7 +831,7 @@ pub(crate) fn parse_env_line_kv(line: &str) -> Option<(&str, &str)> {
 /// Read a secret from 1Password using op read
 pub(crate) fn op_read(reference: &str) -> Result<String> {
     instrumentation::with_span_result("load_inputs.op_read", vec![], || {
-        let mut cmd = Command::new("op");
+        let mut cmd = auth::op_command();
         cmd.arg("read").arg(reference);
         cmd.stdin(Stdio::null());
         let out = command_output_with_timeout(cmd, "`op read`", op_command_timeout())?;

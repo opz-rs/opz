@@ -20,6 +20,7 @@ command types. Cross-module visibility stays `pub(crate)` or narrower.
 
 | Module | Owns |
 | --- | --- |
+| `auth` | opt-in session-keyring lifecycle, internal op command authentication, and non-op environment sanitization |
 | `cli` | clap declarations, parsing, command dispatch, and conversion to domain inputs |
 | `op` | 1Password item models, templates, item mutations, and git remote parsing used by item operations |
 | `mcp/client` | line-oriented JSON-RPC stdio transport, executable discovery, and safe connection diagnostics |
@@ -70,3 +71,8 @@ and keep platform-specific tests behind `cfg`.
 
 Behavioral changes must preserve the stable surface defined in
 [compatibility.md](compatibility.md), especially output routing and exit codes.
+
+Linux session-keyring support uses Secret Service with an encrypted D-Bus session.
+The dependency is currently `secret-service` 6.0.0-rc.1 (zbus 6); stable 5.x pulls
+in standalone zvariant crates flagged as unmaintained by cargo-deny. Keep the
+prerelease dependency visible in review and re-evaluate it on the stable release.

@@ -4,6 +4,14 @@ use crate::*;
 #[command(author, version, about)]
 #[command(args_conflicts_with_subcommands = true)]
 pub(crate) struct Cli {
+    /// Opt in to Linux session-keyring authentication; unchanged default op authentication otherwise.
+    #[arg(long, global = true)]
+    pub(crate) session_keyring: bool,
+
+    /// Dedicated op configuration directory for session-keyring authentication.
+    #[arg(long, global = true, requires = "session_keyring")]
+    pub(crate) session_config: Option<PathBuf>,
+
     /// Vault name for item-backed commands. Incompatible with `environment`.
     #[arg(long, global = true)]
     pub(crate) vault: Option<String>,
@@ -37,7 +45,22 @@ impl From<&Cli> for ItemContext {
 }
 
 #[derive(Subcommand, Debug)]
+pub(crate) enum AuthCommand {
+    /// Sign in interactively and save the session in the OS session keyring.
+    Login,
+    /// Check the saved session without printing account information.
+    Status,
+    /// Sign out through op and delete the saved session.
+    Logout,
+}
+
+#[derive(Subcommand, Debug)]
 pub(crate) enum Cmd {
+    /// Manage opt-in manual authentication in the Linux session keyring.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
     #[command(name = "__sdk-bridge", hide = true)]
     SdkBridge,
 
@@ -322,9 +345,29 @@ impl From<&EnvironmentCommand> for McpEnvironmentAction {
     }
 }
 
+fn parse_cli(args: &[OsString]) -> std::result::Result<Cli, clap::Error> {
+    use clap::{CommandFactory, FromArgMatches};
+    // Existing shorthand parsing lets positional items win after a global flag.
+    // Prefer named subcommands only for the new explicitly opted-in mode.
+    let opted_in = args
+        .iter()
+        .skip(1)
+        .take_while(|a| *a != "--")
+        .any(|a| a == "--session-keyring");
+    if opted_in {
+        let matches = Cli::command()
+            .args_conflicts_with_subcommands(false)
+            .subcommand_precedence_over_arg(true)
+            .try_get_matches_from(args)?;
+        Cli::from_arg_matches(&matches)
+    } else {
+        Cli::try_parse_from(args)
+    }
+}
+
 pub(crate) fn run_cli(args: &[OsString]) -> Result<()> {
     let cli = instrumentation::with_span("parse_args", vec![], || {
-        let parse_result = Cli::try_parse_from(args);
+        let parse_result = parse_cli(args);
         if let Err(err) = &parse_result {
             if err.exit_code() != 0 {
                 instrumentation::record_error_message(&err.to_string());
@@ -335,6 +378,37 @@ pub(crate) fn run_cli(args: &[OsString]) -> Result<()> {
     instrumentation::with_span("load_config", vec![], || {
         let _ = std::env::current_dir();
     });
+    if matches!(cli.cmd, Some(Cmd::Auth { .. })) && !cli.session_keyring {
+        return Err(anyhow!("auth commands require explicit --session-keyring"));
+    }
+    if cli.session_keyring
+        && (matches!(cli.cmd, Some(Cmd::Environment { .. } | Cmd::SdkBridge))
+            || !cli.run_environments.is_empty()
+            || matches!(&cli.cmd, Some(Cmd::Run { environments, .. }) if !environments.is_empty()))
+    {
+        return Err(anyhow!("--session-keyring supports item-backed commands only; MCP/SDK and native op run delegation use separate authentication"));
+    }
+    if cli.session_keyring
+        && cli.cmd.is_some()
+        && (!cli.items.is_empty() || !cli.command.is_empty() || cli.env_file.is_some())
+    {
+        return Err(anyhow!(
+            "do not combine top-level item arguments with a named subcommand"
+        ));
+    }
+    let _auth = if cli.session_keyring {
+        Some(auth::initialize(
+            cli.session_config.as_deref(),
+            !matches!(
+                cli.cmd,
+                Some(Cmd::Auth {
+                    command: AuthCommand::Login | AuthCommand::Logout
+                })
+            ),
+        )?)
+    } else {
+        None
+    };
     let context = ItemContext::from(&cli);
     if cli.vault.is_some() && matches!(cli.cmd, Some(Cmd::Environment { .. })) {
         return Err(anyhow!(
@@ -343,6 +417,11 @@ pub(crate) fn run_cli(args: &[OsString]) -> Result<()> {
     }
 
     match &cli.cmd {
+        Some(Cmd::Auth { command }) => match command {
+            AuthCommand::Login => auth::login(),
+            AuthCommand::Status => auth::status(),
+            AuthCommand::Logout => auth::logout(),
+        },
         Some(Cmd::SdkBridge) => run_sdk_bridge_child(),
         Some(Cmd::Find { query }) => {
             let items = instrumentation::with_span_result("load_inputs", vec![], || {
@@ -580,5 +659,20 @@ mod tests {
         assert!(error
             .to_string()
             .contains("unexpected argument '--environment'"));
+    }
+}
+
+#[cfg(test)]
+mod session_parser_tests {
+    use super::*;
+    #[test]
+    fn parses_opt_in_commands() {
+        for args in [
+            vec!["opz", "--session-keyring", "environment", "list"],
+            vec!["opz", "--session-keyring", "run", "example", "--", "child"],
+        ] {
+            let cli = parse_cli(&args.into_iter().map(OsString::from).collect::<Vec<_>>()).unwrap();
+            assert!(cli.cmd.is_some(), "{cli:?}");
+        }
     }
 }

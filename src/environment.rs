@@ -28,7 +28,7 @@ pub(crate) fn run_with_environments(
     let args = build_op_run_environment_args(flag, environments, command);
 
     instrumentation::with_span_result("write_outputs.command_exec", vec![], || {
-        let status = Command::new("op")
+        let status = auth::op_command()
             .args(&args)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -44,7 +44,7 @@ pub(crate) fn run_with_environments(
 }
 
 pub(crate) fn detect_op_run_environment_flag() -> Result<&'static str> {
-    let mut cmd = Command::new("op");
+    let mut cmd = auth::op_command();
     cmd.arg("run").arg("--help");
     cmd.stdin(Stdio::null());
     let out = command_output_with_timeout(cmd, "`op run --help`", op_command_timeout())?;

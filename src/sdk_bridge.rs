@@ -1,9 +1,10 @@
+use crate::auth;
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 use std::{
     env,
     io::{BufRead, BufReader, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{mpsc, Mutex, OnceLock},
     thread,
     time::Duration,
@@ -22,7 +23,7 @@ struct SdkBridgeProcess {
 impl SdkBridgeProcess {
     fn spawn() -> Result<Self> {
         let executable = env::current_exe().context("locate opz executable for SDK bridge")?;
-        let mut child = Command::new(executable)
+        let mut child = auth::external_command(executable)
             .arg("__sdk-bridge")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

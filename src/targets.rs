@@ -265,7 +265,7 @@ pub(crate) fn build_secret_json_payload(
 }
 
 pub(crate) fn resolve_current_github_repo() -> Result<String> {
-    let out = Command::new("gh")
+    let out = auth::external_command("gh")
         .args([
             "repo",
             "view",
@@ -296,7 +296,7 @@ pub(crate) fn resolve_current_github_repo() -> Result<String> {
 
 pub(crate) fn run_gh_secret_set(repo: &str, name: &str, value: &SecretValue) -> Result<()> {
     let args = build_gh_secret_set_args(repo, name);
-    let child = Command::new("gh")
+    let child = auth::external_command("gh")
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -323,7 +323,7 @@ pub(crate) fn run_wrangler_secret_bulk(
     redactor: &Redactor,
 ) -> Result<()> {
     let args = build_wrangler_secret_bulk_args(target);
-    let child = Command::new("wrangler")
+    let child = auth::external_command("wrangler")
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

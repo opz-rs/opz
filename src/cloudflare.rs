@@ -176,7 +176,7 @@ fn load_cloudflare_input(options: &CloudflareCredentialOptions<'_>) -> Result<Ve
         .command
         .first()
         .ok_or_else(|| anyhow!("command input requires a program after '--'"))?;
-    let output = Command::new(program)
+    let output = auth::external_command(program)
         .args(&options.command[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -926,7 +926,7 @@ fn run_op_item_template(
     template: &serde_json::Value,
     operation: &str,
 ) -> Result<serde_json::Value> {
-    let mut child = Command::new("op")
+    let mut child = auth::op_command()
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

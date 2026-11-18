@@ -82,3 +82,14 @@ Other host paths retain case. Decorated URLs and ports are excluded. Multiple
 matches fail with exit 1 on stderr before resolving secrets or launching a child.
 Website lookup caches only item IDs and normalized repository metadata for
 60 seconds and is invalidated alongside other item caches.
+
+## Optional session-keyring surface
+
+`--session-keyring`, `--session-config <DIR>`, and `auth login/status/logout` are
+explicit opt-in commands. The default path and credential representation are
+internal. Without the flag, existing auth/environment and execution behavior is
+unchanged. Auth subcommands without the flag fail. Other platforms reject this
+Linux-only option. A missing/expired session is an error; no implicit login or
+other auth fallback occurs. Environment/MCP/native op run delegation is not
+supported with this option. Status/login success and logout confirmation go to
+stdout; errors go to stderr and exit 1. Help/parse exit codes remain clap's.

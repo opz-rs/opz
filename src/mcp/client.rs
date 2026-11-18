@@ -1,3 +1,4 @@
+use crate::auth;
 use crate::{find_command_path, DoctorCheck};
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
@@ -5,7 +6,7 @@ use std::{
     env,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Stdio},
     sync::{
         mpsc::{self, Receiver, RecvTimeoutError},
         Arc, Mutex,
@@ -40,7 +41,7 @@ impl OnePasswordMcpStdioClient {
             )
         })?;
 
-        let mut child = Command::new(&path)
+        let mut child = auth::external_command(&path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
