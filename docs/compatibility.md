@@ -93,3 +93,8 @@ Linux-only option. A missing/expired session is an error; no implicit login or
 other auth fallback occurs. Environment/MCP/native op run delegation is not
 supported with this option. Status/login success and logout confirmation go to
 stdout; errors go to stderr and exit 1. Help/parse exit codes remain clap's.
+
+In session-keyring mode, `doctor` reports SDK, MCP and Environment checks as
+optional warnings disabled by `--session-keyring`, without probing those paths.
+Normal-mode diagnostics and exit semantics are unchanged. Required `op`
+authentication failures still fail; doctor success is not an injection test.

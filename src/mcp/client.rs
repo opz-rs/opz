@@ -333,6 +333,12 @@ pub(crate) fn mcp_command_timeout() -> Duration {
 }
 
 pub(crate) fn check_onepassword_mcp_server() -> DoctorCheck {
+    if auth::enabled() {
+        return DoctorCheck::warn(
+            "1Password MCP",
+            "disabled by --session-keyring; not probed in this mode",
+        );
+    }
     match resolve_onepassword_mcp_command() {
         Some((command, path, legacy)) => {
             let detail = if legacy {

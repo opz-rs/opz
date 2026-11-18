@@ -139,6 +139,12 @@ pub(crate) fn collect_doctor_checks() -> Vec<DoctorCheck> {
 }
 
 pub(crate) fn check_desktop_sdk() -> DoctorCheck {
+    if auth::enabled() {
+        return DoctorCheck::warn(
+            "1Password Desktop SDK",
+            "disabled by --session-keyring; not probed in this mode",
+        );
+    }
     if desktop_sdk_explicitly_disabled() {
         return DoctorCheck::warn(
             "1Password Desktop SDK",
@@ -173,6 +179,12 @@ pub(crate) fn desktop_sdk_unavailable_check() -> DoctorCheck {
 }
 
 pub(crate) fn check_op_run_environments_support() -> DoctorCheck {
+    if auth::enabled() {
+        return DoctorCheck::warn(
+            "op run environments",
+            "disabled by --session-keyring; not probed in this mode",
+        );
+    }
     let mut cmd = auth::op_command();
     cmd.arg("run").arg("--help");
     cmd.stdin(Stdio::null());

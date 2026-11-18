@@ -532,7 +532,7 @@ fn doctor_uses_fake_tools_and_keeps_stdout_stderr_separate() {
             ),
             step("op", &["run", "--help"], "Usage: op run --environments"),
         ],
-        &["op"],
+        &["op", "1password-mcp"],
     );
     let mut command = harness.command();
     command.env("PATH", &harness.bin);
@@ -542,6 +542,9 @@ fn doctor_uses_fake_tools_and_keeps_stdout_stderr_separate() {
     assert!(stdout.contains("ok    op auth: user@example.test (A1)"));
     assert!(stdout.contains("warn  gh: not found in PATH"));
     assert!(stdout.contains("warn  1Password Desktop SDK: not probed under hermetic test scenario"));
+    assert!(stdout.contains("ok    op run environments: supported via --environments"));
+    assert!(stdout.contains("ok    1Password MCP:"));
+    assert!(!stdout.contains("disabled by --session-keyring"));
     assert!(output.stderr.is_empty());
 }
 
@@ -1450,4 +1453,89 @@ fn keyring_item_edit_drains_large_stdout_and_stderr_without_false_timeout() {
     assert!(!String::from_utf8_lossy(&out.stdout).contains(token));
     assert!(!String::from_utf8_lossy(&out.stderr).contains(token));
     assert_eq!(h.invocation(1).tool, "op");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn keyring_doctor_skips_disabled_paths_and_preserves_auth_failures() {
+    for auth_fails in [false, true] {
+        for mcp_present in [false, true] {
+            let token = "CANARY_DOCTOR_SESSION_42";
+            let whoami = if auth_fails {
+                Step {
+                    exit_code: 1,
+                    stderr: format!("expired {token}"),
+                    ..step("op", &["whoami", "--format", "json"], "")
+                }
+            } else {
+                step(
+                    "op",
+                    &["whoami", "--format", "json"],
+                    r#"{"email":"user@example.test"}"#,
+                )
+            };
+            let tools = if mcp_present {
+                vec!["op", "1password-mcp"]
+            } else {
+                vec!["op"]
+            };
+            let h = Harness::new(
+                vec![
+                    step("op", &["--version"], "2.30.0"),
+                    whoami,
+                    step("op", &["account", "list", "--format", "json"], "[]"),
+                ],
+                &tools,
+            );
+            let out = h
+                .command()
+                .env("PATH", &h.bin)
+                .env("OPZ_ONEPASSWORD_SDK", "off")
+                .env(
+                    "OPZ_TEST_AUTH_SESSION",
+                    format!(r#"{{"OP_SESSION_native":"{token}"}}"#),
+                )
+                .args(["--session-keyring", "doctor"])
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(if auth_fails { 1 } else { 0 }));
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for name in [
+                "1Password Desktop SDK",
+                "1Password MCP",
+                "op run environments",
+            ] {
+                assert!(
+                    stdout.contains(&format!(
+                        "warn  {name}: disabled by --session-keyring; not probed in this mode"
+                    )),
+                    "{stdout}"
+                );
+            }
+            assert!(!stdout.contains("disabled by OPZ_ONEPASSWORD_SDK"));
+            assert!(!stdout.contains("supported via"));
+            assert!(!stdout.contains("Integrate with"));
+            assert_canary_absent(&out, token, "doctor");
+            if !auth_fails {
+                assert!(out.stderr.is_empty());
+            }
+            // Only op version, whoami and account-list should execute. In particular,
+            // no op run --help, SDK bridge or MCP process may be launched.
+            assert_eq!(
+                fs::read_dir(&h.logs)
+                    .unwrap()
+                    .filter(|entry| entry
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext == "json"))
+                    .count(),
+                3
+            );
+            for index in 0..3 {
+                assert_eq!(h.invocation(index).tool, "op");
+            }
+        }
+    }
 }

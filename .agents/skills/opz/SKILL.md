@@ -10,7 +10,7 @@ Use this skill when you need to work with 1Password-backed secrets through the `
 ## Prerequisites
 
 - 1Password CLI (`op`) is installed and authenticated.
-- The official 1Password MCP server executable `1password-mcp` is available. Enable Settings > Labs > MCP Server and Settings > Developer > Integrate with MCP clients in the 1Password app. `OPZ_1PASSWORD_MCP_COMMAND` may point to an explicit executable; the older `onepassword-mcp` name is accepted as a fallback.
+- For Environment management in normal authentication mode only: the official 1Password MCP server executable `1password-mcp` is available. Enable Settings > Labs > MCP Server and Settings > Developer > Integrate with MCP clients in the 1Password app. `OPZ_1PASSWORD_MCP_COMMAND` may point to an explicit executable; the older `onepassword-mcp` name is accepted as a fallback.
 - The relevant vault and item names are known, can be discovered with `opz find`, or can be auto-detected from item titles that match the current git remote repository name.
 
 ## Global Options
@@ -21,15 +21,24 @@ Use this skill when you need to work with 1Password-backed secrets through the `
 
 ## Optional Linux session-keyring authentication
 
-Only when explicitly requested, use `opz --session-keyring auth login/status/logout`
+Only when explicitly requested, including a standing instruction in AGENTS.md, use `opz --session-keyring auth login/status/logout`
 and `opz --session-keyring run <ITEM> -- <COMMAND>`. Login is interactive in the
-user's terminal; never request credentials in chat. Every invocation must opt in.
+user's terminal; never request credentials in chat. Every invocation must opt in. A configured wrapper that supplies the flag satisfies this requirement; follow the existing wrapper and config instructions without asking the user to repeat their authentication choice.
 The default dedicated config is `${XDG_CONFIG_HOME:-$HOME/.config}/opz/manual-auth`;
 repeat `--session-config <DIR>` if overriding it. Never fall back to app auth or
 plaintext storage on a keyring failure. This mode sends its session only to
 internal `op`; other tools and targets do not inherit it. It disables SDK and
 batch `op run` and rejects Environment/MCP delegation. Same-user keyring access
 remains possible. On other operating systems use the normal authentication path.
+In this mode MCP is not a prerequisite. Do not follow the normal-mode SDK/MCP
+setup or Environment examples below. `doctor` labels these paths as disabled by
+`--session-keyring` and does not probe them; this is expected, not a repair request.
+A successful `doctor` verifies required authentication checks, not actual secret
+injection or every subcommand. Verify injection only with an authorized item and
+a trusted child, without printing secrets. Manual sessions expire and session
+keyring storage is cleared at logout; use the configured renewal procedure only
+when the session is missing or expired. Never persist secrets or authentication
+credentials in logs or plaintext files.
 
 ## Commands
 
@@ -52,7 +61,7 @@ opz show --with-item <ITEM>...
 
 ### `doctor`
 
-Check `op` authentication, the 1Password Desktop SDK read path, the 1Password MCP server command, external command dependencies, and plaintext `.env`-style credential files. Required `op` failures exit non-zero; Desktop SDK failures, missing optional tools, missing MCP server, and credential-file findings are warnings. When the Desktop SDK is unavailable, enable **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps**.
+Check `op` authentication, the 1Password Desktop SDK read path, the 1Password MCP server command, external command dependencies, and plaintext `.env`-style credential files. Required `op` failures exit non-zero; Desktop SDK failures, missing optional tools, missing MCP server, and credential-file findings are warnings. In normal authentication mode, when the Desktop SDK is unavailable, enable **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps**.
 
 ```bash
 opz doctor
@@ -193,7 +202,7 @@ opz skills
 ## Behavior Notes
 
 - When multiple items define the same env key, later items win.
-- `doctor` checks `op` as required and probes the 1Password Desktop SDK read path. SDK failures are optional warnings with the **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** enable path. It also reports the 1Password MCP server command, `gh`, `wrangler`, `git`, `sh`, `secretlint`, and plaintext `.env`-style files as optional warnings.
+- In normal authentication mode, `doctor` checks `op` as required and probes the 1Password Desktop SDK read path. SDK failures are optional warnings with the **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** enable path. It also reports the 1Password MCP server command, `gh`, `wrangler`, `git`, `sh`, `secretlint`, and plaintext `.env`-style files as optional warnings.
 - `github-secret` also uses later-item-wins and passes values to `gh secret set` through stdin.
 - `github-secret` rejects names starting with `GITHUB_` and blocks writes when item `github_repositories` metadata does not include the target repo.
 - `github-repo` migrates existing items by merging repository metadata into `github_repositories`.
@@ -226,8 +235,8 @@ opz skills
 2. Run `opz doctor` if `op` authentication or a dependency CLI looks suspicious.
 3. Inspect available labels with `opz show`.
 4. Use `opz run ... -- <COMMAND>` for the normal file-free workflow.
-5. Use `opz run --environment <ENV> -- <COMMAND>` when the project is managed through 1Password Environments and the local `op` CLI supports native Environment injection.
-6. Use `opz environment list`, `opz environment variables <ENV>`, `opz environment add <ENV> <NAME>...`, `opz environment tools`, and `opz environment mount <ENV> .env.local` when managing 1Password Developer Environments through MCP.
+5. In normal authentication mode only, use `opz run --environment <ENV> -- <COMMAND>` when the project is managed through 1Password Environments and the local `op` CLI supports native Environment injection.
+6. In normal authentication mode only, use `opz environment list`, `opz environment variables <ENV>`, `opz environment add <ENV> <NAME>...`, `opz environment tools`, and `opz environment mount <ENV> .env.local` when managing 1Password Developer Environments through MCP.
 7. Use `opz plugin list` and `opz plugin show <NAME[@VERSION]>` before pinning a release; use `opz plugin run ...` for an explicit plugin launch.
 8. Use `opz gen --env-file ...` only when another tool needs `op://` references in a file.
 9. Use `opz migrate --dry-run` to preview script migration, then `opz migrate`, `opz migrate --new`, or `opz migrate --restore`.

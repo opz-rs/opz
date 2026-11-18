@@ -92,7 +92,14 @@ opz find github
 opz doctor
 ```
 
-`doctor` は必須の `op` チェックが失敗した場合だけ非 0 で終了します。1Password MCP server、`gh`、`wrangler`、`git`、`sh`、`secretlint` など任意ツールの欠落は警告として表示します。1Password Desktop SDK の read path も probe し、利用できない場合は **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** を有効にするよう案内します。平文の `.env` 系 credential ファイルもチェックし、`secretlint` が使える場合はそのファイルに対して実行します。
+`doctor` は必須の `op` チェックが失敗した場合だけ非 0 で終了します。1Password MCP server、`gh`、`wrangler`、`git`、`sh`、`secretlint` など任意ツールの欠落は警告として表示します。通常の認証モードでは 1Password Desktop SDK の read path も probe し、利用できない場合は **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** を有効にするよう案内します。平文の `.env` 系 credential ファイルもチェックし、`secretlint` が使える場合はそのファイルに対して実行します。
+
+`--session-keyring` 使用時の `doctor` は SDK・MCP・Environment を
+`disabled by --session-keyring` と表示し、診断をスキップします。
+これは想定どおりの警告であり、アプリ連携の修復は不要です。
+必須の `op` 認証確認は行いますが、成功は実注入や全コマンドの動作確認を意味しません。
+共通指示や設定済みラッパーによる指定も明示的な有効化に含まれ、
+チャットごとに利用者へ同じ認証方式の指定を求める必要はありません。
 
 ### アイテムラベル表示
 

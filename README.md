@@ -107,7 +107,14 @@ Check 1Password CLI status and external command dependencies:
 opz doctor
 ```
 
-`doctor` exits non-zero when required `op` checks fail. Missing optional tools such as the 1Password MCP server, `gh`, `wrangler`, `git`, `sh`, or `secretlint` are reported as warnings. It also probes the 1Password Desktop SDK read path, checks for plaintext `.env`-style credential files, and, when `secretlint` is available, runs it against those files. If the Desktop SDK is unavailable, enable **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** in the 1Password desktop app.
+`doctor` exits non-zero when required `op` checks fail. Missing optional tools such as the 1Password MCP server, `gh`, `wrangler`, `git`, `sh`, or `secretlint` are reported as warnings. In normal authentication mode it also probes the 1Password Desktop SDK read path. It checks for plaintext `.env`-style credential files, and, when `secretlint` is available, runs it against those files. In normal authentication mode, if the Desktop SDK is unavailable, enable **Settings → Developer → Integrate with the 1Password SDKs → Integrate with other apps** in the 1Password desktop app.
+
+With `--session-keyring`, `doctor` reports SDK, MCP and Environment paths as
+`disabled by --session-keyring` and skips their probes. Do not enable app
+integration to repair these expected warnings. Required `op` authentication
+checks still run; success does not verify actual secret injection or all commands.
+A standing agent instruction or configured wrapper can supply the explicit
+opt-in; users need not repeat that choice for each chat.
 
 ### Show Item Labels
 
